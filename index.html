@@ -238,6 +238,8 @@
             <form id="settings-form">
                 <label for="music-url">URL de Música de Ambiente (.mp3, .wav):</label>
                 <input type="url" id="music-url" placeholder="https://ejemplo.com/musica.mp3">
+                <label for="fov-range">Campo de Visión (FOV): <span id="fov-value"></span>°</label>
+                <input type="range" id="fov-range" min="50" max="120" step="1">
                 <div class="modal-buttons">
                     <button type="button" class="btn" id="cancel-settings">Cancelar</button>
                     <button type="submit" class="btn">Guardar Ajustes</button>
@@ -540,9 +542,30 @@
             });
             document.getElementById('visit-form').addEventListener('submit', (e) => { e.preventDefault(); const newId = document.getElementById('visit-id-input').value.trim(); if (newId && newId !== currentGalleryId) loadGallery(newId); });
             
-            document.getElementById('settings-button').addEventListener('click', () => { if (userId === currentGalleryId) { settingsModal.style.display = 'flex'; if (controls) controls.unlock(); } else { alert("Solo puedes editar los ajustes de tu propia galería."); } });
+            const fovInput = document.getElementById('fov-range');
+            const fovValue = document.getElementById('fov-value');
+            fovInput.addEventListener('input', () => { fovValue.textContent = fovInput.value; });
+
+            document.getElementById('settings-button').addEventListener('click', () => {
+                if (userId === currentGalleryId) {
+                    settingsModal.style.display = 'flex';
+                    fovInput.value = camera.fov;
+                    fovValue.textContent = camera.fov;
+                    if (controls) controls.unlock();
+                } else {
+                    alert("Solo puedes editar los ajustes de tu propia galería.");
+                }
+            });
             document.getElementById('cancel-settings').addEventListener('click', () => { settingsModal.style.display = 'none'; });
-            document.getElementById('settings-form').addEventListener('submit', (e) => { e.preventDefault(); const musicUrl = document.getElementById('music-url').value; saveGallerySettings(currentGalleryId, musicUrl); settingsModal.style.display = 'none'; });
+            document.getElementById('settings-form').addEventListener('submit', (e) => {
+                e.preventDefault();
+                const musicUrl = document.getElementById('music-url').value;
+                const fov = parseFloat(fovInput.value);
+                camera.fov = fov;
+                camera.updateProjectionMatrix();
+                saveGallerySettings(currentGalleryId, musicUrl);
+                settingsModal.style.display = 'none';
+            });
             muteButton.addEventListener('click', () => { ambientAudio.muted = !ambientAudio.muted; muteButton.textContent = ambientAudio.muted ? '🔇' : '🔊'; });
         }
         function setupPointerLockControls() {
