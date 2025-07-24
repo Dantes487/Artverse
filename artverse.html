@@ -1,0 +1,685 @@
+import React, { useState, useEffect, useRef } from 'react';
+import * as THREE from 'three';
+import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
+
+// --- Íconos ---
+const UserCircle = (props) => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10" /><circle cx="12" cy="10" r="3" /><path d="M7 20.662V19a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v1.662" /></svg>);
+const UploadCloud = (props) => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" /><path d="M12 12v9" /><path d="m16 16-4-4-4 4" /></svg>);
+const X = (props) => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>);
+const GoogleIcon = () => (<svg className="w-5 h-5" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C42.022,35.244,44,30.036,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path></svg>);
+const Award = (props) => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>);
+const ArrowLeft = (props) => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>);
+const Sparkles = (props) => (<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M9.414 6.657 12 4l2.586 2.657M12 20l-2.586-2.657M4 12l2.657-2.586M20 12l-2.657 2.586M12 12l-2 5 2-5-5-2 5 2-2-5 2 5 5 2-5-2z"/></svg>);
+
+
+// --- Componentes de UI reutilizables ---
+const AnimatedCard = ({ children, delay = 0 }) => (
+    <div className="motion-card" style={{ animationDelay: `${delay * 0.1}s` }}>{children}</div>
+);
+const ArtworkCard = ({ art, onSelect }) => (
+    <AnimatedCard>
+        <div onClick={() => onSelect(art)} className="bg-gray-800 rounded-lg overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 ease-in-out group cursor-pointer">
+            <div className="relative w-full h-80">
+                 <img src={art.imageUrl} alt={art.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                 <div className="absolute bottom-0 left-0 p-4">
+                    <h3 className="text-white text-lg font-bold">{art.title}</h3>
+                    <p className="text-gray-300 text-sm">{art.artistName}</p>
+                 </div>
+            </div>
+        </div>
+    </AnimatedCard>
+);
+
+// --- Componente Galería 3D (mejorado) ---
+const Gallery3D = ({ artworks, onExit }) => {
+    const mountRef = useRef(null);
+    const [isLocked, setIsLocked] = useState(false);
+    const [selectedArt, setSelectedArt] = useState(null);
+
+    useEffect(() => {
+        const currentMount = mountRef.current;
+        if (!currentMount) return;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111827);
+        scene.fog = new THREE.Fog(0x111827, 0, 75);
+        const camera = new THREE.PerspectiveCamera(75, currentMount.clientWidth / currentMount.clientHeight, 0.1, 1000);
+        camera.position.y = 1.6;
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        currentMount.appendChild(renderer.domElement);
+
+        const controls = new PointerLockControls(camera, renderer.domElement);
+        const onLock = () => setIsLocked(true);
+        const onUnlock = () => setIsLocked(false);
+        controls.addEventListener('lock', onLock);
+        controls.addEventListener('unlock', onUnlock);
+        
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        
+        const onClick = () => {
+            if (!controls.isLocked) {
+                controls.lock();
+            } else {
+                pointer.set(0, 0);
+                raycaster.setFromCamera(pointer, camera);
+                const intersects = raycaster.intersectObjects(scene.children);
+                const artObject = intersects.find(intersect => intersect.object.userData.isArtwork);
+                if (artObject && artObject.distance < 5) {
+                    setSelectedArt(artObject.object.userData.details);
+                }
+            }
+        };
+        currentMount.addEventListener('click', onClick);
+
+        const floorGeometry = new THREE.PlaneGeometry(100, 100);
+        const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x27272a });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        const wallMaterial = new THREE.MeshStandardMaterial({ color: 0x3f3f46 });
+        const wallHeight = 7;
+        const wallLength = 50;
+        const wall1 = new THREE.Mesh(new THREE.PlaneGeometry(wallLength, wallHeight), wallMaterial);
+        wall1.position.set(0, wallHeight / 2, -15);
+        scene.add(wall1);
+        
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+        scene.add(ambientLight);
+
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.setCrossOrigin("anonymous");
+        
+        const artSpacing = 8;
+        const artHeightCenter = 2;
+
+        artworks.forEach((art, index) => {
+            textureLoader.load(art.imageUrl, (texture) => {
+                const aspectRatio = texture.image.width / texture.image.height;
+                const artDisplayHeight = 2.5;
+                const artDisplayWidth = artDisplayHeight * aspectRatio;
+                const artGeometry = new THREE.PlaneGeometry(artDisplayWidth, artDisplayHeight);
+                const artMaterial = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.3, metalness: 0.1 });
+                const artworkMesh = new THREE.Mesh(artGeometry, artMaterial);
+                artworkMesh.userData = { isArtwork: true, details: art };
+                
+                artworkMesh.position.set((-wallLength / 2) + artSpacing * (index + 1.5), artHeightCenter, -14.9);
+                scene.add(artworkMesh);
+
+                const spotLight = new THREE.SpotLight(0xffffff, 2, 12, Math.PI / 6, 0.3);
+                spotLight.position.set(artworkMesh.position.x, 5, artworkMesh.position.z + 3);
+                spotLight.target = artworkMesh;
+                scene.add(spotLight);
+                scene.add(spotLight.target);
+            });
+        });
+
+        const keys = { w: false, a: false, s: false, d: false };
+        const onKeyDown = (event) => { if (event.key.toLowerCase() in keys) keys[event.key.toLowerCase()] = true; };
+        const onKeyUp = (event) => { if (event.key.toLowerCase() in keys) keys[event.key.toLowerCase()] = false; };
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        const clock = new THREE.Clock();
+        let animationFrameId;
+
+        const animate = () => {
+            animationFrameId = requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const moveSpeed = 5.0 * delta;
+
+            if (controls.isLocked) {
+                if (keys.w) controls.moveForward(moveSpeed);
+                if (keys.s) controls.moveForward(-moveSpeed);
+                if (keys.a) controls.moveRight(-moveSpeed);
+                if (keys.d) controls.moveRight(moveSpeed);
+            }
+            renderer.render(scene, camera);
+        };
+        animate();
+
+        const handleResize = () => {
+             if (currentMount) {
+                camera.aspect = currentMount.clientWidth / currentMount.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(currentMount.clientWidth, currentMount.clientHeight);
+            }
+        };
+        window.addEventListener('resize', handleResize);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            document.removeEventListener('keydown', onKeyDown);
+            document.removeEventListener('keyup', onKeyUp);
+            controls.removeEventListener('lock', onLock);
+            controls.removeEventListener('unlock', onUnlock);
+            currentMount.removeEventListener('click', onClick);
+            cancelAnimationFrame(animationFrameId);
+             if (currentMount && renderer.domElement) {
+                currentMount.removeChild(renderer.domElement);
+            }
+        };
+    }, [artworks]);
+
+    return (
+        <div className="fixed inset-0 bg-gray-900 z-50 cursor-pointer">
+            <button onClick={onExit} className="absolute top-4 left-4 z-20 bg-gray-800/50 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md transition-colors flex items-center gap-2">
+                <ArrowLeft /> Salir de la Galería
+            </button>
+            {!isLocked && (
+                <div className="absolute inset-0 z-10 flex flex-col justify-center items-center bg-gray-900/80 backdrop-blur-sm pointer-events-none">
+                    <h2 className="text-3xl font-bold text-white">Entrar a la Galería</h2>
+                    <p className="text-gray-300 mt-2">Haz clic para empezar a recorrer</p>
+                    <div className="mt-4 text-gray-400">
+                        <p><span className="font-bold">Moverse:</span> W, A, S, D</p>
+                        <p><span className="font-bold">Mirar:</span> Mover el ratón</p>
+                        <p><span className="font-bold">Salir:</span> Tecla 'Esc'</p>
+                    </div>
+                </div>
+            )}
+            {isLocked && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full z-10 opacity-50"></div>}
+            {selectedArt && (
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 bg-gray-800/80 backdrop-blur-md p-4 rounded-lg text-white text-center pointer-events-auto">
+                    <h3 className="text-xl font-bold">{selectedArt.title}</h3>
+                    <p className="text-md text-gray-300">por {selectedArt.artistName}</p>
+                    <button onClick={() => setSelectedArt(null)} className="mt-2 text-sm text-indigo-400">Cerrar</button>
+                </div>
+            )}
+            <div ref={mountRef} className="w-full h-full" />
+        </div>
+    );
+};
+
+// --- Componentes de Vistas ---
+const ExposicionesView = ({ exposiciones, onSelectExposicion, isLoading }) => {
+    const getExposicionStatus = (exhibit) => {
+        const now = new Date();
+        const startDate = exhibit.startDate;
+        const endDate = exhibit.endDate;
+        if (now < startDate) return 'upcoming';
+        if (now > endDate) return 'finished';
+        return 'active';
+    };
+    
+    const getStatusChip = (status) => {
+        const styles = {
+            active: "bg-green-500",
+            upcoming: "bg-yellow-500",
+            finished: "bg-gray-500",
+        };
+        return <span className={`absolute top-4 right-4 ${styles[status]} text-white text-xs font-bold px-2 py-1 rounded-full`}>{status.toUpperCase()}</span>;
+    };
+
+    if (isLoading) {
+        return (
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {[...Array(3)].map((_, i) => (
+                        <div key={i} className="bg-gray-800 rounded-lg shadow-lg p-6 animate-pulse">
+                            <div className="h-6 bg-gray-700 rounded w-3/4 mb-4"></div>
+                            <div className="h-4 bg-gray-700 rounded w-full mb-2"></div>
+                            <div className="h-4 bg-gray-700 rounded w-5/6 mb-4"></div>
+                            <div className="h-10 bg-gray-700 rounded w-full mt-6"></div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="text-center mb-12">
+                 <h2 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl">Exposiciones Virtuales</h2>
+                 <p className="mt-3 max-w-md mx-auto text-lg text-gray-400 sm:text-xl md:mt-5 md:max-w-3xl">
+                     Explora galerías 3D curadas y participa en eventos de arte globales.
+                 </p>
+            </div>
+            {exposiciones.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {exposiciones.map((exhibit, i) => (
+                        <AnimatedCard key={exhibit.id} delay={i}>
+                            <div className="bg-gray-800 rounded-lg shadow-lg p-6 flex flex-col relative h-full">
+                                {getStatusChip(getExposicionStatus(exhibit))}
+                                <h3 className="text-2xl font-bold text-white mb-2">{exhibit.title}</h3>
+                                <p className="text-gray-400 mb-4 flex-grow">{exhibit.description}</p>
+                                <p className="text-sm text-indigo-400 font-semibold">
+                                    {exhibit.startDate.toLocaleDateString()} - {exhibit.endDate.toLocaleDateString()}
+                                </p>
+                                <button onClick={() => onSelectExposicion(exhibit)} className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition-colors">
+                                    Ver Detalles
+                                </button>
+                            </div>
+                        </AnimatedCard>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-center text-gray-400">No hay exposiciones disponibles en este momento.</p>
+            )}
+        </div>
+    );
+};
+const MyArtworksView = ({ artworks, onSelectArtwork }) => (
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h2 className="text-3xl font-bold text-white mb-8">Mis Obras de Arte</h2>
+        {artworks.length > 0 ? 
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {artworks.map((art, i) => <ArtworkCard key={art.id} art={art} onSelect={onSelectArtwork} delay={i} />)}
+            </div> : 
+            <p className="text-center text-gray-400">Aún no has subido ninguna obra. ¡Haz clic en "Subir Obra" para empezar!</p>
+        }
+    </div>
+);
+const ArtistProfileView = ({ artist, artworks, onSelectArtwork }) => (
+    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex items-center mb-8">
+            <img src={artist.photoURL || 'https://placehold.co/96x96/78716c/ffffff?text=A'} alt={artist.displayName} className="w-24 h-24 rounded-full mr-6" />
+            <div>
+                <h1 className="text-4xl font-bold">{artist.displayName}</h1>
+                <p className="text-gray-400 mt-2">{artist.bio || "Este artista aún no ha añadido una biografía."}</p>
+            </div>
+        </div>
+        <h2 className="text-2xl font-bold text-white mb-6">Obras del Artista</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {artworks.map((art, i) => <ArtworkCard key={art.id} art={art} onSelect={onSelectArtwork} delay={i} />)}
+        </div>
+    </div>
+);
+const HomePage = ({ exposiciones, artworks, onSelectExposicion, onSelectArtwork }) => {
+    const getExposicionStatus = (exhibit) => {
+        const now = new Date();
+        const startDate = exhibit.startDate;
+        const endDate = exhibit.endDate;
+        if (now < startDate) return 'upcoming';
+        if (now > endDate) return 'finished';
+        return 'active';
+    };
+    
+    const activeExposicion = exposiciones.find(e => getExposicionStatus(e) === 'active');
+
+    return (
+        <>
+            {activeExposicion && (
+                <div className="relative h-[60vh] flex items-center justify-center text-center text-white bg-gray-800 overflow-hidden">
+                    <div className="absolute inset-0 z-0">
+                        <img src={activeExposicion.imageUrl || 'https://placehold.co/1920x1080/1f2937/374151?text=ArtVerse'} alt={activeExposicion.title} className="w-full h-full object-cover opacity-20" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-gray-900 to-transparent"></div>
+                    </div>
+                    <div className="relative z-10 p-4">
+                        <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight">{activeExposicion.title}</h1>
+                        <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-300">{activeExposicion.description}</p>
+                        <button onClick={() => onSelectExposicion(activeExposicion)} className="mt-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-md transition-colors text-lg">
+                            Entrar a la Exposición
+                        </button>
+                    </div>
+                </div>
+            )}
+            <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                <h2 className="text-3xl font-bold text-white mb-8">Últimas Obras</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    {artworks.slice(0, 4).map((art, i) => <ArtworkCard key={art.id} art={art} onSelect={onSelectArtwork} delay={i} />)}
+                </div>
+            </div>
+        </>
+    );
+};
+
+
+// --- Componentes Modales ---
+const ExhibitionCertificate = ({ exposicion, artistName, onBack }) => { 
+    const handlePrint = () => window.print(); 
+    return (
+        <div className="fixed inset-0 bg-gray-900 z-50 p-4 sm:p-8 flex flex-col items-center justify-center printable-area">
+            <div className="bg-white text-gray-800 rounded-lg shadow-2xl p-8 sm:p-12 md:p-16 w-full max-w-4xl border-8 border-yellow-400 relative">
+                <div className="absolute inset-0 bg-repeat bg-center opacity-5" style={{backgroundImage: `url('https://www.transparenttextures.com/patterns/gplay.png')`}}></div>
+                <div className="text-center relative">
+                    <Award className="w-24 h-24 text-yellow-500 mx-auto mb-4"/>
+                    <h2 className="text-4xl sm:text-5xl font-bold text-gray-700 font-serif">Certificado de Exposición</h2>
+                    <p className="text-lg mt-6">Se otorga el presente certificado a</p>
+                    <p className="text-3xl font-semibold text-indigo-600 my-4">{artistName}</p>
+                    <p className="text-lg">por su valiosa participación en la exposición virtual</p>
+                    <h3 className="text-3xl font-bold text-gray-700 my-4 font-serif">"{exposicion.title}"</h3>
+                    <p className="text-md">realizada del {exposicion.startDate.toLocaleDateString()} al {exposicion.endDate.toLocaleDateString()}.</p>
+                    <p className="mt-8 text-sm text-gray-500">Emitido por ArtVerse el {new Date().toLocaleDateString()}</p>
+                </div>
+            </div>
+            <div className="mt-8 flex gap-4 no-print">
+                <button onClick={onBack} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-md transition-colors flex items-center gap-2"><ArrowLeft /> Volver</button>
+                <button onClick={handlePrint} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md transition-colors">Imprimir o Guardar PDF</button>
+            </div>
+            <style>{`@media print { body * { visibility: hidden; } .printable-area, .printable-area * { visibility: visible; } .printable-area { position: absolute; left: 0; top: 0; width: 100%; height: 100%; } .no-print { display: none; } }`}</style>
+        </div>
+    );
+};
+const UploadModal = ({ onClose, activeExposiciones, onAddArtwork }) => {
+    const [title, setTitle] = useState('');
+    const [description, setDescription] = useState('');
+    const [file, setFile] = useState(null);
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState('');
+    const [selectedExposicion, setSelectedExposicion] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+    const fileInputRef = useRef(null);
+
+    const handleFileChange = (e) => {
+        const selectedFile = e.target.files[0];
+        if (selectedFile && selectedFile.type.startsWith('image/')) {
+            setFile(selectedFile);
+            setError('');
+        } else {
+            setFile(null);
+            setError('Por favor, selecciona un archivo de imagen válido.');
+        }
+    };
+
+    const handleGenerateDescription = async () => {
+        if (!title) {
+            setError("Por favor, introduce un título primero.");
+            return;
+        }
+        setIsGenerating(true);
+        setError('');
+        
+        try {
+            const prompt = `Escribe una descripción artística y atractiva para una obra de arte titulada '${title}'. La descripción debe ser de unas 30-50 palabras.`;
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`API call failed with status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            
+            if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts.length > 0) {
+                const text = result.candidates[0].content.parts[0].text;
+                setDescription(text);
+            } else {
+                throw new Error("Respuesta inesperada de la API.");
+            }
+        } catch (err) {
+            console.error(err);
+            setError("No se pudo generar la descripción. Inténtalo de nuevo.");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!file || !title) {
+            setError('Título y archivo de imagen son requeridos.');
+            return;
+        }
+        setUploading(true);
+        
+        const newArtwork = {
+            id: `art_${Date.now()}`,
+            title,
+            description,
+            imageUrl: URL.createObjectURL(file),
+            artistId: 'artist_demo',
+            artistName: 'Artista Demo',
+            artistPhotoURL: 'https://placehold.co/40x40/78716c/ffffff?text=A',
+            exhibitionId: selectedExposicion || null,
+            createdAt: new Date(),
+        };
+
+        setTimeout(() => {
+            onAddArtwork(newArtwork);
+            setUploading(false);
+            onClose();
+        }, 1000);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-4">
+            <div className="bg-gray-800 rounded-lg shadow-2xl p-8 w-full max-w-md relative">
+                <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white"><X className="w-6 h-6" /></button>
+                <h2 className="text-2xl font-bold text-white mb-6">Sube tu Obra de Arte</h2>
+                <form onSubmit={handleSubmit}>
+                    <div className="mb-4"><label htmlFor="title" className="block text-gray-300 text-sm font-bold mb-2">Título</label><input type="text" id="title" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-gray-700 text-white rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500" required /></div>
+                    <div className="mb-4 relative">
+                        <label htmlFor="description" className="block text-gray-300 text-sm font-bold mb-2">Descripción</label>
+                        <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full bg-gray-700 text-white rounded-md py-2 px-3 h-24 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"></textarea>
+                        <button type="button" onClick={handleGenerateDescription} disabled={isGenerating} className="absolute bottom-2 right-2 p-1 bg-indigo-600 rounded-full hover:bg-indigo-500 disabled:bg-gray-500 transition-colors">
+                            {isGenerating ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : <Sparkles className="w-4 h-4 text-white" />}
+                        </button>
+                    </div>
+                    <div className="mb-4"><label htmlFor="exhibition" className="block text-gray-300 text-sm font-bold mb-2">Asignar a Exposición (Opcional)</label><select id="exhibition" value={selectedExposicion} onChange={(e) => setSelectedExposicion(e.target.value)} className="w-full bg-gray-700 text-white rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"><option value="">Ninguna</option>{activeExposiciones.map(ex => <option key={ex.id} value={ex.id}>{ex.title}</option>)}</select></div>
+                    <div className="mb-6"><label className="block text-gray-300 text-sm font-bold mb-2">Archivo de Imagen</label><div className="border-2 border-dashed border-gray-600 rounded-md p-6 text-center cursor-pointer hover:border-indigo-500 transition-colors" onClick={() => fileInputRef.current.click()}><input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="hidden" />{file ? <p className="text-green-400">{file.name}</p> : <><UploadCloud className="mx-auto text-gray-500 w-12 h-12" /><p className="text-gray-400 mt-2">Arrastra o haz clic para seleccionar</p></> }</div></div>
+                    {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+                    {uploading ? <div className="w-full bg-gray-700 rounded-full h-4"><div className="bg-gray-700 h-4 rounded-full"></div><p className="text-center text-sm text-white mt-2">Subiendo...</p></div> : <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-md transition-colors">Subir Obra</button>}
+                </form>
+            </div>
+        </div>
+    );
+};
+const ArtworkDetailModal = ({ art, onClose, onSelectArtist, onSelectExposicion }) => {
+    const [critique, setCritique] = useState({ loading: false, result: '', error: '' });
+
+    const urlToBase64 = async (url) => {
+        const response = await fetch(url);
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    };
+
+    const handleGetCritique = async () => {
+        setCritique({ loading: true, result: '', error: '' });
+        try {
+            const base64ImageData = await urlToBase64(art.imageUrl);
+            const prompt = "Eres un crítico de arte constructivo y alentador. Proporciona un análisis de esta obra de arte. Habla sobre la composición, el uso del color, el estado de ánimo y el posible significado. Ofrece una sugerencia para que el artista explore en su próximo trabajo. Sé conciso y positivo.";
+            
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }
+                    ]
+                }]
+            };
+            
+            const apiKey = "";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+            
+            const result = await response.json();
+            
+            if (result.candidates && result.candidates.length > 0 && result.candidates[0].content.parts.length > 0) {
+                const text = result.candidates[0].content.parts[0].text;
+                setCritique({ loading: false, result: text, error: '' });
+            } else {
+                throw new Error("Respuesta inesperada de la API.");
+            }
+        } catch (err) {
+            console.error(err);
+            setCritique({ loading: false, result: '', error: 'No se pudo obtener la crítica. Inténtalo de nuevo.' });
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex justify-center items-center z-50 p-4" onClick={onClose}>
+            <div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="md:w-2/3 flex-shrink-0 bg-gray-900 flex items-center justify-center">
+                    <img src={art.imageUrl} alt={art.title} className="w-full h-full object-contain" />
+                </div>
+                <div className="md:w-1/3 p-6 flex flex-col">
+                    <h2 className="text-2xl font-bold text-white mb-2">{art.title}</h2>
+                    <div onClick={() => onSelectArtist(art.artistId)} className="flex items-center mb-4 cursor-pointer group">
+                        <img src={art.artistPhotoURL || 'https://placehold.co/40x40/78716c/ffffff?text=A'} alt={art.artistName} className="w-10 h-10 rounded-full mr-3" />
+                        <span className="text-indigo-400 group-hover:underline">{art.artistName}</span>
+                    </div>
+                    <p className="text-gray-300 flex-grow overflow-y-auto mb-4">{art.description}</p>
+                    
+                    <div className="border-t border-gray-700 pt-4 mt-4">
+                        <button onClick={handleGetCritique} disabled={critique.loading} className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-colors flex items-center justify-center gap-2">
+                            <Sparkles className="w-5 h-5"/>
+                            {critique.loading ? 'Analizando...' : 'Recibir crítica de la IA'}
+                        </button>
+                        {critique.loading && <div className="text-center text-gray-400 mt-2">La IA está preparando tu crítica...</div>}
+                        {critique.error && <p className="text-red-400 text-sm mt-2">{critique.error}</p>}
+                        {critique.result && <div className="mt-4 p-3 bg-gray-700 rounded-lg text-sm text-gray-300 whitespace-pre-wrap">{critique.result}</div>}
+                    </div>
+                    
+                    {art.exhibitionId && (
+                        <button onClick={() => onSelectExposicion(art.exhibitionId)} className="mt-4 w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition-colors">
+                            Ver Exposición
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- Componente Principal de la Aplicación ---
+export default function App() {
+    const [loading, setLoading] = useState(false);
+    const [isLoadingData, setIsLoadingData] = useState(false);
+    const [view, setView] = useState({ name: 'home' });
+    const [allArtworks, setAllArtworks] = useState([]);
+    const [allExposiciones, setAllExposiciones] = useState([]);
+    const [showUploadModal, setShowUploadModal] = useState(false);
+    const [selectedArtwork, setSelectedArtwork] = useState(null);
+    const [artistProfile, setArtistProfile] = useState({ artist: null, artworks: [] });
+    const [galleryArtworks, setGalleryArtworks] = useState([]);
+
+    // Cargar datos de ejemplo al iniciar
+    useEffect(() => {
+        const mockExposiciones = [
+            { id: 'expo1', title: 'Futuros Brillantes', description: 'Una mirada al optimismo a través del arte digital y colores vibrantes.', startDate: new Date('2025-07-01'), endDate: new Date('2025-07-31'), imageUrl: 'https://placehold.co/1920x1080/3b82f6/ffffff?text=Futuros+Brillantes' },
+            { id: 'expo2', title: 'Naturaleza Abstracta', description: 'Formas orgánicas y paisajes de ensueño que reinterpretan el mundo natural.', startDate: new Date('2025-08-01'), endDate: new Date('2025-08-31'), imageUrl: 'https://placehold.co/1920x1080/16a34a/ffffff?text=Naturaleza+Abstracta' },
+            { id: 'expo3', title: 'Memorias Urbanas', description: 'Un viaje nostálgico por las ciudades del pasado.', startDate: new Date('2025-06-01'), endDate: new Date('2025-06-30'), imageUrl: 'https://placehold.co/1920x1080/94a3b8/ffffff?text=Memorias+Urbanas' },
+        ];
+        const mockArtworks = [
+            { id: 'art1', title: 'Nebulosa Eléctrica', description: 'Un torbellino de colores cósmicos.', imageUrl: 'https://placehold.co/800x600/8b5cf6/ffffff?text=Arte+1', artistId: 'artist1', artistName: 'Clara Luz', artistPhotoURL: 'https://placehold.co/96x96/a78bfa/ffffff?text=CL', exhibitionId: 'expo1', createdAt: new Date() },
+            { id: 'art2', title: 'Bosque de Cristal', description: 'La luz se filtra a través de árboles geométricos.', imageUrl: 'https://placehold.co/600x800/22c55e/ffffff?text=Arte+2', artistId: 'artist2', artistName: 'Leo Montes', artistPhotoURL: 'https://placehold.co/96x96/4ade80/ffffff?text=LM', exhibitionId: 'expo2', createdAt: new Date() },
+            { id: 'art3', title: 'Atardecer en Neón', description: 'El sol se pone sobre una ciudad del futuro.', imageUrl: 'https://placehold.co/800x600/f97316/ffffff?text=Arte+3', artistId: 'artist1', artistName: 'Clara Luz', artistPhotoURL: 'https://placehold.co/96x96/a78bfa/ffffff?text=CL', exhibitionId: 'expo1', createdAt: new Date() },
+            { id: 'art4', title: 'Raíces Digitales', description: 'La conexión entre la tecnología y la naturaleza.', imageUrl: 'https://placehold.co/600x800/14b8a6/ffffff?text=Arte+4', artistId: 'artist2', artistName: 'Leo Montes', artistPhotoURL: 'https://placehold.co/96x96/4ade80/ffffff?text=LM', exhibitionId: 'expo2', createdAt: new Date() },
+        ];
+        setAllExposiciones(mockExposiciones);
+        setAllArtworks(mockArtworks);
+    }, []);
+
+    const getExposicionStatus = (exhibit) => {
+        if (!exhibit || !exhibit.startDate) return 'upcoming';
+        const now = new Date();
+        const startDate = exhibit.startDate;
+        const endDate = exhibit.endDate;
+        if (now < startDate) return 'upcoming';
+        if (now > endDate) return 'finished';
+        return 'active';
+    };
+
+    const handleSelectExposicion = (exhibit) => {
+        if (!exhibit || !exhibit.id) return;
+        const artworksForExpo = allArtworks.filter(art => art.exhibitionId === exhibit.id);
+        setGalleryArtworks(artworksForExpo);
+        setView({ name: 'exhibition_detail', data: exhibit });
+    };
+    
+    const handleSelectExposicionFromArt = (exposicionId) => {
+        const expo = allExposiciones.find(e => e.id === exposicionId);
+        if (expo) {
+            handleSelectExposicion(expo);
+            setSelectedArtwork(null);
+        }
+    }
+
+    const handleSelectArtist = (artistId) => {
+        if (!artistId) return;
+        const artistWorks = allArtworks.filter(art => art.artistId === artistId);
+        if (artistWorks.length > 0) {
+            const artistInfo = {
+                uid: artistId,
+                displayName: artistWorks[0].artistName,
+                photoURL: artistWorks[0].artistPhotoURL,
+                bio: "Un artista apasionado explorando la intersección del arte y la tecnología."
+            };
+            setArtistProfile({ artist: artistInfo, artworks: artistWorks });
+            setView({ name: 'artist_profile' });
+            setSelectedArtwork(null);
+        }
+    };
+
+    const handleAddArtwork = (newArtwork) => {
+        setAllArtworks(prevArtworks => [newArtwork, ...prevArtworks]);
+    };
+
+    const renderView = () => {
+        switch (view.name) {
+            case 'home': return <HomePage exposiciones={allExposiciones} artworks={allArtworks} onSelectExposicion={handleSelectExposicion} onSelectArtwork={setSelectedArtwork} />;
+            case 'exposiciones': return <ExposicionesView exposiciones={allExposiciones} onSelectExposicion={handleSelectExposicion} isLoading={isLoadingData} />;
+            case 'artist_profile': return <ArtistProfileView artist={artistProfile.artist} artworks={artistProfile.artworks} onSelectArtwork={setSelectedArtwork} />;
+            case 'exhibition_detail':
+                const status = getExposicionStatus(view.data);
+                return (
+                    <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center">
+                        <button onClick={() => setView({name: 'exposiciones'})} className="text-indigo-400 hover:text-indigo-300 mb-8 flex items-center gap-2 mx-auto"><ArrowLeft /> Volver a Exposiciones</button>
+                        <h2 className="text-4xl font-bold">{view.data.title}</h2>
+                        <p className="text-gray-400 mt-2 max-w-2xl mx-auto">{view.data.description}</p>
+                        <div className="mt-8 flex flex-col sm:flex-row justify-center items-center gap-4">
+                            <button onClick={() => setView({name: '3d_gallery', data: view.data})} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-md transition-colors">Entrar a la Galería 3D</button>
+                            {status === 'finished' && <button onClick={() => setView({name: 'certificate', data: view.data})} className="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3 px-8 rounded-md transition-colors flex items-center gap-2"><Award /> Ver mi Certificado</button>}
+                        </div>
+                        {galleryArtworks.length === 0 && <p className="text-center text-gray-500 mt-8">Aún no hay obras de arte en esta exposición.</p>}
+                    </div>
+                );
+            case '3d_gallery': return <Gallery3D artworks={galleryArtworks} onExit={() => setView({name: 'exhibition_detail', data: view.data})} />;
+            case 'certificate': return <ExhibitionCertificate exposicion={view.data} artistName={"Artista Participante"} onBack={() => setView({name: 'exhibition_detail', data: view.data})} />;
+            default: return <HomePage exposiciones={allExposiciones} artworks={allArtworks} onSelectExposicion={handleSelectExposicion} onSelectArtwork={setSelectedArtwork} />;
+        }
+    };
+
+    if (loading) {
+        return <div className="bg-gray-900 min-h-screen flex justify-center items-center text-white">Cargando ArtVerse...</div>;
+    }
+
+    const activeExposiciones = allExposiciones.filter(ex => getExposicionStatus(ex) === 'active');
+
+    return (
+        <div className="bg-gray-900 min-h-screen font-sans text-white">
+            <style>{`.motion-card { animation: fadeIn 0.5s ease-out forwards; opacity: 0; } @keyframes fadeIn { to { opacity: 1; } }`}</style>
+            <nav className="bg-gray-800/50 backdrop-blur-sm sticky top-0 z-40">
+                <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="flex items-center justify-between h-16">
+                        <button onClick={() => setView({name: 'home'})} className="text-2xl font-bold tracking-wider">ArtVerse</button>
+                        <div className="flex items-center gap-4">
+                             <button onClick={() => setView({name: 'exposiciones'})} className="text-gray-300 hover:text-white transition-colors">Exposiciones</button>
+                             <button onClick={() => setShowUploadModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-md transition-colors"><UploadCloud className="w-5 h-5" /><span className="hidden sm:inline">Subir Obra</span></button>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+            
+            {showUploadModal && <UploadModal onClose={() => setShowUploadModal(false)} activeExposiciones={activeExposiciones} onAddArtwork={handleAddArtwork} />}
+            {selectedArtwork && <ArtworkDetailModal art={selectedArtwork} onClose={() => setSelectedArtwork(null)} onSelectArtist={handleSelectArtist} onSelectExposicion={handleSelectExposicionFromArt} />}
+
+            <main>{renderView()}</main>
+        </div>
+    );
+}
